@@ -1,102 +1,88 @@
 #![windows_subsystem = "windows"]
+/**
+ * what i have learnt:
+ * 1.
+ * what I should learn:
+ * 1. channel, mspc
+ * 2. serde
+ * 3. String vs str & or not
+ *
+ */
 use std::{
-    fs::File,
+    fs::{self, File},
+    io::Write,
     process::{Child, Command, Stdio},
     sync::mpsc,
 };
 
+use serde::{Deserialize, Serialize};
 use tray_item::{IconSource, TrayItem};
+use winreg::{enums::HKEY_CURRENT_USER, RegKey};
+use winrt_notification::{Duration, IconCrop, Sound, Toast};
 enum Message {
     Quit,
     ChangeIcon,
     Reconnect,
     Hello,
 }
-const IS_DEBUG: bool = true;
-fn main() {
-    let bin = "C:/Program Files/SSHFS-Win/bin/sshfs.exe";
-    // TODO: read from config file
 
-    let conns = vec![
-        Connection {
-            user: String::from("root"),
-            host: String::from("192.168.31.11"),
-            folder: String::from("/media/fuserdata"),
-            mountPoint: String::from("X:"),
-            port: String::from("22"),
-            name: String::from("root@fjail/fuserdata"),
-            uuid: String::from("be094dd7-6814-4051-b1cf-8858b35a444c"),
-            identityFile: String::from("C:/Users/Fifv/.ssh/id_ed255519"),
-            isMountAsANetworkDrive: true,
-        },
-        Connection {
-            user: String::from("root"),
-            host: String::from("192.168.31.11"),
-            folder: String::from("/media/BitTorrentDownload/"),
-            mountPoint: String::from("Y:"),
-            port: String::from("22"),
-            name: String::from("root@fjail/BitTorrentDownload/"),
-            uuid: String::from("cbb57576-a793-4f43-9b6a-cc20dfb3d233"),
-            identityFile: String::from("C:/Users/Fifv/.ssh/id_ed255519"),
-            isMountAsANetworkDrive: true,
-        },
-        Connection {
-            user: String::from("root"),
-            host: String::from("192.168.31.11"),
-            folder: String::from("/"),
-            mountPoint: String::from("Z:"),
-            port: String::from("22"),
-            name: String::from("root@fjail"),
-            uuid: String::from("718c9c70-d564-4981-8402-4a23b089d874"),
-            identityFile: String::from("C:/Users/Fifv/.ssh/id_ed255519"),
-            isMountAsANetworkDrive: true,
-        },
-        Connection {
-            user: String::from("fifv"),
-            host: String::from("192.168.56.102"),
-            folder: String::from("/"),
-            mountPoint: String::from("R:"),
-            port: String::from("22"),
-            name: String::from("fifv@VB.Arch/"),
-            uuid: String::from("wwwwwwwww"),
-            identityFile: String::from("C:/Users/Fifv/.ssh/id_ed255519"),
-            isMountAsANetworkDrive: false,
-        },
-    ];
-    // let mut childs = Vec::from_iter(conns.iter().map(|conn| start_app(bin, &conn)));
-
-    let mut man = ConnectionManager::build(bin, conns);
-    man.start();
-}
+#[derive(Serialize, Deserialize, Debug)]
 struct Connection {
+    name: String,
     user: String,
     host: String,
+    port: String,
     folder: String,
     mountPoint: String,
-    port: String,
-    name: String,
-    uuid: String,
+    // uuid: String,
     identityFile: String,
     isMountAsANetworkDrive: bool,
 }
+impl Connection {
+    // fn calculate_hash_from_everything(&self) -> String {
+    //     let serialized = serde_json::to_string(self).unwrap();
+    //     let digest = md5::compute(serialized);
+    //     format!("{:x}", digest).chars().take(6).collect::<String>()
+    // }
+    fn calculate_hash(&self) -> String {
+        let mut hasher = md5::Context::new();
+        hasher.consume(&self.user);
+        hasher.consume(&self.host);
+        hasher.consume(&self.port);
+        hasher.consume(&self.folder);
+        let result = hasher.compute();
+        format!("{:x}", result).chars().take(6).collect::<String>()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct SshfsConfig {
+    connections: Vec<Connection>,
+}
+
 struct ConnectionManager {
     bin: String,
     conns: Vec<Connection>,
     childs: Vec<Child>,
 }
 impl ConnectionManager {
-    fn build(bin: &str, conns: Vec<Connection>) -> ConnectionManager {
+    fn build(bin: &str) -> ConnectionManager {
         ConnectionManager {
             bin: bin.to_string(),
             childs: vec![],
-            conns: conns,
+            conns: vec![],
         }
     }
     /**
      * the entry point, start all connections, create tray icon, create message loop
      */
     fn start(self: &mut ConnectionManager) {
-        self.start_all();
+        match self.read_from_config() {
+            Ok(_) => {
+                self.start_all();
+            }
+            _ => (),
+        }
         // for conn in conns {
         //     self.childs.push(self.connect(&conn));
         // }
@@ -107,8 +93,32 @@ impl ConnectionManager {
      */
     fn create_sshfs(bin: &String, conn: &Connection) -> Child {
         // println!("* start {}", conn.name);
+        // let id = nanoid!(6);
+        let id = conn.calculate_hash().chars().take(6).collect::<String>();
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        if conn.isMountAsANetworkDrive {
+            let mount_points = RegKey::predef(HKEY_CURRENT_USER)
+                .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2")
+                .expect("failed to open reg key");
+            mount_points
+                .create_subkey(format!("##sshfs#{}", &id))
+                .expect("failed to open reg")
+                .0
+                .set_value("_LabelFromReg", &conn.name)
+                .expect("failed to modify reg");
+            // Command::new("reg")
+            // .arg("add")
+            // .arg(format!("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2\\##sshfs#{}",&conn.uuid))
+            // .arg("/v").arg("_LabelFromReg")
+            // .arg("/d").arg(&conn.name)
+            // .arg("/f")
+            // .creation_flags(CREATE_NO_WINDOW)
+            // .output()
+            // .expect("failed to modify reg");
+        }
+
         let mut cmd = Command::new(&bin);
         cmd.args([
             format!("{}@{}:{}", conn.user, conn.host, conn.folder),
@@ -116,7 +126,7 @@ impl ConnectionManager {
             format!("-p{}", conn.port),
             format!("-ovolname={}", conn.name),
         ]);
-        if IS_DEBUG {
+        if true {
             // TODO: 1. find how to prevent spawn new console without -odebug
             // TODO: 2. or use bufWritter to buffer write
             cmd.args([
@@ -149,7 +159,7 @@ impl ConnectionManager {
             // "-oCompression=no", // no effect
         ]);
         if conn.isMountAsANetworkDrive {
-            cmd.arg(format!("-oVolumePrefix=/sshfs-win-manager/{}", conn.uuid));
+            cmd.arg(format!("-oVolumePrefix=/sshfs/{}", &id));
         }
         cmd.args(["-oreconnect", "-oPreferredAuthentications=publickey"])
             .arg(format!("-oIdentityFile=\"\"{}\"\"", conn.identityFile));
@@ -157,9 +167,19 @@ impl ConnectionManager {
         cmd.env("PATH", bin.trim_end_matches(|x| x != '/'));
 
 
-        let stdio_out = Stdio::from(File::create("log_out.txt").unwrap());
-        let stdio_err = Stdio::from(File::create("log_err.txt").unwrap());
-        let stdio_in = Stdio::from(File::create("log_in.txt").unwrap());
+        let stdio_out = Stdio::from(File::create(format!("log_out.txt")).unwrap());
+        let mut err_file = File::create(format!("log_err_{}.txt", id)).unwrap();
+        err_file
+            .write_all(
+                format!(
+                    "------- config -------\n\n{:#?}\n\n------- stderr -------\n\n",
+                    conn
+                )
+                .as_bytes(),
+            )
+            .expect("");
+        let stdio_err = Stdio::from(err_file);
+        let stdio_in = Stdio::from(File::create(format!("log_in.txt")).unwrap());
         let child = cmd
             .creation_flags(CREATE_NO_WINDOW)
             .stdin(stdio_in) // this required if creation_flags(CREATE_NO_WINDOW). while stdout and stderr are optional
@@ -169,7 +189,7 @@ impl ConnectionManager {
             .expect("exec failed?!");
 
 
-        println!("* {} spawned, id: {}", conn.name, child.id());
+        println!("* [spawned] pid: {} , name: {}", child.id(), conn.name);
         child
         // .map(|_| ())
         // .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
@@ -188,18 +208,24 @@ impl ConnectionManager {
      *
      */
     fn start_all(self: &mut ConnectionManager) {
+        Self::clean_old_reg();
         self.childs = Vec::from_iter(
             self.conns
                 .iter()
-                .map(|conn| ConnectionManager::create_sshfs(&self.bin, &conn)),
+                .map(|conn| Self::create_sshfs(&self.bin, &conn)),
         );
     }
     /**
      * kill all processes and restart
      */
     fn restart_all(self: &mut ConnectionManager) {
-        self.kill_all();
-        self.start_all();
+        match self.read_from_config() {
+            Ok(_) => {
+                self.kill_all();
+                self.start_all();
+            }
+            _ => (),
+        }
     }
     fn kill_all(self: &mut ConnectionManager) {
         for child in &mut self.childs {
@@ -207,6 +233,68 @@ impl ConnectionManager {
             child.kill().expect("failed to kill");
         }
         self.childs.clear();
+    }
+    fn read_from_config(self: &mut ConnectionManager) -> Result<(), ()> {
+        let config: Result<SshfsConfig,_> = toml::from_str(
+            fs::read_to_string("sshfs.toml")
+                .expect("failed to open config")
+                .as_str(),
+        )
+        /* .unwrap_or_else(|err| {
+            eprintln!("failed to parse config, err: {}", err);
+            let default_config = SshfsConfig {
+                connections: vec![],
+            };
+            default_config
+        }) */;
+        match config {
+            Ok(config) => {
+                println!("* config: {:#?}", config);
+                self.conns = config.connections;
+                Result::Ok(())
+            }
+            Err(err) => {
+                eprintln!("failed to parse config, err: {}", err.to_string());
+                Toast::new(Toast::POWERSHELL_APP_ID)
+                    .title("Failed to parse config!")
+                    // .text1("(╯°□°）╯︵ ┻━┻")
+                    .text2(err.to_string().as_str())
+                    .sound(Some(Sound::Default))
+                    .duration(Duration::Long)
+                    .show()
+                    .expect("unable to toast");
+                Result::Err(())
+            }
+        }
+    }
+    fn clean_old_reg() {
+        let mount_points = RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2")
+            .expect("failed to open reg key");
+        // for mount_point_key in mount_points
+        //     .enum_keys()
+        //     .map(|x| x.unwrap())
+        //     .filter(|x| x.starts_with("##sshfs#"))
+        // {
+        //     mount_points
+        //         .delete_subkey(&mount_point_key)
+        //         .expect("failed to clean old key");
+        //     println!("* [clean reg] deleted: {}", &mount_point_key);
+        // }
+        let old_keys: Vec<String> = mount_points
+            .enum_keys()
+            .map(|x| x.unwrap())
+            .filter(|x| x.starts_with("##sshfs#"))
+            .collect();
+        /*
+        what? move filter into forin cause omit some keys?
+         */
+        for old_key in old_keys {
+            mount_points
+                .delete_subkey(&old_key)
+                .expect("failed to clean old key");
+            println!("* [clean reg] deleted: {}", &old_key);
+        }
     }
     fn tray_loop(self: &mut ConnectionManager) {
         let mut tray = TrayItem::new(
@@ -244,6 +332,17 @@ impl ConnectionManager {
         })
         .unwrap();
 
+        /* handle ctrlc, only works in console subsystem, not windows subsystem */
+        let ctrlc_tx = tx.clone();
+        ctrlc::set_handler(move || {
+            println!("Receive Ctrl-C, exiting...");
+            ctrlc_tx
+                .send(Message::Quit)
+                .expect("Could not send signal on channel.")
+        })
+        .expect("Error setting Ctrl-C handler");
+
+
         loop {
             match rx.recv() {
                 Ok(Message::Quit) => {
@@ -274,12 +373,11 @@ impl ConnectionManager {
     }
 }
 
-// fn handle_ctrlc() {
-//     /* handler ctrlc. but with no console you can't send ^C ... */
-//     let (tx, rx) = mpsc::channel();
-//     ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
-//         .expect("Error setting Ctrl-C handler");
-//     println!("Waiting for Ctrl-C...");
-//     rx.recv().expect("Could not receive from channel.");
-//     println!("Got it! Exiting...");
-// }
+
+fn main() {
+    let bin = "C:/Program Files/SSHFS-Win/bin/sshfs.exe";
+    // TO\DO: read from config file
+    // let mut childs = Vec::from_iter(conns.iter().map(|conn| start_app(bin, &conn)));
+    let mut man = ConnectionManager::build(bin);
+    man.start();
+}

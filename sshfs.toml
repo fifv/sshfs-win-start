@@ -1,0 +1,39 @@
+[[connections]]
+user = "root"
+host = "192.168.31.11"
+port = "22"
+folder = "/media/fuserdata"
+mountPoint = "X:"
+name = "root@fjail/fuserdata"
+identityFile = "C:/Users/Fifv/.ssh/id_ed255519"
+isMountAsANetworkDrive = true
+
+[[connections]]
+user = "root"
+host = "192.168.31.11"
+port = "22"
+folder = "/media/BitTorrentDownload/"
+mountPoint = "Y:"
+name = "root@fjail/BitTorrentDownload/"
+identityFile = "C:/Users/Fifv/.ssh/id_ed255519"
+isMountAsANetworkDrive = true
+
+[[connections]]
+user = "root"
+host = "192.168.31.11"
+port = "22"
+folder = "/"
+mountPoint = "Z:"
+name = "root@fjail"
+identityFile = "C:/Users/Fifv/.ssh/id_ed255519"
+isMountAsANetworkDrive = true
+
+[[connections]]
+user = "fifv"
+host = "192.168.56.102"
+port = "22"
+folder = "/"
+mountPoint = "R:"
+name = "fifv@VB.Arch/"
+identityFile = "C:/Users/Fifv/.ssh/id_ed255519"
+isMountAsANetworkDrive = false
