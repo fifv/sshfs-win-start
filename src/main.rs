@@ -23,7 +23,7 @@ enum Message {
     Quit,
     // ChangeIcon,
     Reconnect,
-    Hello,
+    // Hello,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -83,9 +83,6 @@ impl ConnectionManager {
             }
             _ => (),
         }
-        // for conn in conns {
-        //     self.childs.push(self.connect(&conn));
-        // }
         self.tray_loop();
     }
     /**
@@ -105,7 +102,6 @@ impl ConnectionManager {
             mount_points
                 .create_subkey(format!("##sshfs#{}", &id))
                 .expect("failed to open reg")
-                .0
                 .set_value("_LabelFromReg", &conn.name)
                 .expect("failed to modify reg");
             // Command::new("reg")
@@ -128,7 +124,7 @@ impl ConnectionManager {
         ]);
         if true {
             // TODO: 1. find how to prevent spawn new console without -odebug
-            // TODO: 2. or use bufWritter to buffer write
+            // TO\DO: 2. or use bufWritter to buffer write seems can't use bufWritter...?
             cmd.args([
                 /* log write 180KB/s while copy file 100MB/s */
                 "-odebug", // this makes kill works...???why???
@@ -191,22 +187,8 @@ impl ConnectionManager {
 
         println!("* [spawned] pid: {} , name: {}", child.id(), conn.name);
         child
-        // .map(|_| ())
-        // .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-
-        // match child {
-        //     Ok(s) => {
-        //         print!("rustc succeeded and stdout was:\n",);
-        //     }
-        //     Err(err) => {
-        //         print!("rustc failed and stderr was:\n{}", err);
-        //     }
-        // }
     }
 
-    /**
-     *
-     */
     fn start_all(self: &mut ConnectionManager) {
         Self::clean_old_reg();
         self.childs = Vec::from_iter(
@@ -271,16 +253,7 @@ impl ConnectionManager {
         let mount_points = RegKey::predef(HKEY_CURRENT_USER)
             .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2")
             .expect("failed to open reg key");
-        // for mount_point_key in mount_points
-        //     .enum_keys()
-        //     .map(|x| x.unwrap())
-        //     .filter(|x| x.starts_with("##sshfs#"))
-        // {
-        //     mount_points
-        //         .delete_subkey(&mount_point_key)
-        //         .expect("failed to clean old key");
-        //     println!("* [clean reg] deleted: {}", &mount_point_key);
-        // }
+
         let old_keys: Vec<String> = mount_points
             .enum_keys()
             .map(|x| x.unwrap())
@@ -298,22 +271,12 @@ impl ConnectionManager {
     }
     fn tray_loop(self: &mut ConnectionManager) {
         let mut tray = TrayItem::new(
-            "Tray Example",
+            "SSHFS Win Start",
             IconSource::Resource("name-of-icon-in-rc-file"),
         )
         .unwrap();
 
-        let label_id = tray.inner_mut().add_label_with_id("Tray Label").unwrap();
-
-        tray.inner_mut().add_separator().unwrap();
-
         let (tx, rx) = mpsc::sync_channel(1);
-
-        let hello_tx = tx.clone();
-        tray.add_menu_item("Hello!", move || {
-            hello_tx.send(Message::Hello).unwrap();
-        })
-        .unwrap();
 
         let reconnect_tx = tx.clone();
         let reconnect_id = tray
@@ -322,7 +285,6 @@ impl ConnectionManager {
                 reconnect_tx.send(Message::Reconnect).unwrap();
             })
             .unwrap();
-
 
         tray.inner_mut().add_separator().unwrap();
 
@@ -347,21 +309,15 @@ impl ConnectionManager {
             match rx.recv() {
                 Ok(Message::Quit) => {
                     self.kill_all();
-                    // childs
-                    //     .iter()
-                    //     .for_each(|mut child| child.kill().expect("failed to kill"));
                     println!("Quit");
                     break;
-                }
-                Ok(Message::Hello) => {
-                    tray.inner_mut().set_label("Hi there!", label_id).unwrap();
                 }
                 Ok(Message::Reconnect) => {
                     tray.inner_mut()
                         .set_label("Reconnecting...", reconnect_id)
                         .unwrap();
                     // sleep(time::Duration::from_millis(1000));
-                    // TODO: Reconnect
+                    // TO\DO: Reconnect
                     self.restart_all();
                     tray.inner_mut()
                         .set_menu_item_label("Reconnect", reconnect_id)
