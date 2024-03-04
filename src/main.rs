@@ -1,6 +1,6 @@
 #![windows_subsystem = "windows"]
 /**
- * what i have learnt:
+ * what I have learnt:
  * 1.
  * what I should learn:
  * 1. channel, mspc
@@ -21,7 +21,7 @@ use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 use winrt_notification::{Duration, IconCrop, Sound, Toast};
 enum Message {
     Quit,
-    ChangeIcon,
+    // ChangeIcon,
     Reconnect,
     Hello,
 }

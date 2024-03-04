@@ -4,8 +4,9 @@ A no-GUI alternative to sshfs-win-manager
 
 Currently only support publickey auth
 
-## Usage
+This project is experimental, and is my first rust app, learning while coding...
 
+## Usage
 
 1. Install `sshfs-win`, make sure `sshfs.exe` located at `C:/Program Files/SSHFS-Win/bin/sshfs.exe`
 2. Edit `sshfs.toml`, copy it in the same folder as the `start-sshfs.exe`
@@ -18,3 +19,6 @@ Currently only support publickey auth
 2. run `cargo build --release`
 3. output at `target/release` 
 4. Edit & Copy the `sshfs.toml`
+
+## LICENSE
+GPL 3.0
