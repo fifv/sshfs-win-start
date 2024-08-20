@@ -102,6 +102,7 @@ impl ConnectionManager {
             mount_points
                 .create_subkey(format!("##sshfs#{}", &id))
                 .expect("failed to open reg")
+                .0
                 .set_value("_LabelFromReg", &conn.name)
                 .expect("failed to modify reg");
             // Command::new("reg")
