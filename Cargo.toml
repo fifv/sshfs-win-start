@@ -16,6 +16,7 @@ serde = { version = "*", features = ["derive"] }
 toml = "*"
 winrt-notification = "*"
 # windows = "*"
+sanitize-filename = "*"
 
 [build-dependencies]
 windres = "*"

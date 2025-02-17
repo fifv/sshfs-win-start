@@ -1,4 +1,9 @@
-#![windows_subsystem = "windows"]
+#![cfg(windows)]
+/* show console on debug build */
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions),),
+    windows_subsystem = "windows"
+)]
 /**
  * what I have learnt:
  * 1.
@@ -166,8 +171,13 @@ impl ConnectionManager {
         cmd.env("PATH", bin.trim_end_matches(|x| x != '/'));
 
 
-        let stdio_out = Stdio::from(File::create(format!("log_out.txt")).unwrap());
-        let mut err_file = File::create(format!("log_err_{}.txt", id)).unwrap();
+        let stdio_out = Stdio::from(File::create(format!("log_out.log")).unwrap());
+        let mut err_file = File::create(format!(
+            "log_err_{}_{}.log",
+            sanitize_filename::sanitize(&conn.name),
+            &id
+        ))
+        .unwrap();
         err_file
             .write_all(
                 format!(
@@ -178,7 +188,8 @@ impl ConnectionManager {
             )
             .expect("");
         let stdio_err = Stdio::from(err_file);
-        let stdio_in = Stdio::from(File::create(format!("log_in.txt")).unwrap());
+        // let stdio_in = Stdio::from(File::create(format!("log_in.log")).unwrap());
+        let stdio_in = Stdio::from(Stdio::null());
         let child = cmd
             .creation_flags(CREATE_NO_WINDOW)
             .stdin(stdio_in) // this required if creation_flags(CREATE_NO_WINDOW). while stdout and stderr are optional
@@ -240,14 +251,7 @@ impl ConnectionManager {
             }
             Err(err) => {
                 eprintln!("failed to parse config, err: {}", err.to_string());
-                Toast::new(Toast::POWERSHELL_APP_ID)
-                    .title("Failed to parse config!")
-                    // .text1("(╯°□°）╯︵ ┻━┻")
-                    .text2(err.to_string().as_str())
-                    .sound(Some(Sound::Default))
-                    .duration(Duration::Long)
-                    .show()
-                    .expect("unable to toast");
+                toast_error("Failed to parse config!", err.to_string().as_str());
                 Result::Err(())
             }
         }
@@ -330,6 +334,17 @@ impl ConnectionManager {
             }
         }
     }
+}
+
+fn toast_error(title: &str, text: &str) {
+    Toast::new(Toast::POWERSHELL_APP_ID)
+        .title(&title)
+        // .text1("(╯°□°）╯︵ ┻━┻")
+        .text2(&text)
+        .sound(Some(Sound::Default))
+        .duration(Duration::Long)
+        .show()
+        .expect("unable to toast");
 }
 
 
