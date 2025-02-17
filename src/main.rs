@@ -27,16 +27,17 @@ enum Message {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")] // Automatically map snake_case to camelCase
 struct Connection {
     name: String,
     user: String,
     host: String,
     port: String,
     folder: String,
-    mountPoint: String,
+    mount_point: String,
     // uuid: String,
-    identityFile: String,
-    isMountAsANetworkDrive: bool,
+    identity_file: String,
+    is_mount_as_a_network_drive: bool,
 }
 impl Connection {
     // fn calculate_hash_from_everything(&self) -> String {
@@ -56,6 +57,7 @@ impl Connection {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] // Automatically map snake_case to camelCase
 struct SshfsConfig {
     connections: Vec<Connection>,
 }
@@ -66,8 +68,8 @@ struct ConnectionManager {
     childs: Vec<Child>,
 }
 impl ConnectionManager {
-    fn build(bin: &str) -> ConnectionManager {
-        ConnectionManager {
+    fn build(bin: &str) -> Self {
+        Self {
             bin: bin.to_string(),
             childs: vec![],
             conns: vec![],
@@ -76,7 +78,7 @@ impl ConnectionManager {
     /**
      * the entry point, start all connections, create tray icon, create message loop
      */
-    fn start(self: &mut ConnectionManager) {
+    fn start(self: &mut Self) {
         match self.read_from_config() {
             Ok(_) => {
                 self.start_all();
@@ -95,7 +97,7 @@ impl ConnectionManager {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-        if conn.isMountAsANetworkDrive {
+        if conn.is_mount_as_a_network_drive {
             let mount_points = RegKey::predef(HKEY_CURRENT_USER)
                 .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2")
                 .expect("failed to open reg key");
@@ -119,7 +121,7 @@ impl ConnectionManager {
         let mut cmd = Command::new(&bin);
         cmd.args([
             format!("{}@{}:{}", conn.user, conn.host, conn.folder),
-            conn.mountPoint.to_string(),
+            conn.mount_point.to_string(),
             format!("-p{}", conn.port),
             format!("-ovolname={}", conn.name),
         ]);
@@ -155,11 +157,11 @@ impl ConnectionManager {
             // "-oCiphers=chacha20-poly1305@openssh.com", // no effect
             // "-oCompression=no", // no effect
         ]);
-        if conn.isMountAsANetworkDrive {
+        if conn.is_mount_as_a_network_drive {
             cmd.arg(format!("-oVolumePrefix=/sshfs/{}", &id));
         }
         cmd.args(["-oreconnect", "-oPreferredAuthentications=publickey"])
-            .arg(format!("-oIdentityFile=\"\"{}\"\"", conn.identityFile));
+            .arg(format!("-oIdentityFile=\"\"{}\"\"", conn.identity_file));
         // cmd.arg("-ossh_command=bin/ssh.exe");
         cmd.env("PATH", bin.trim_end_matches(|x| x != '/'));
 
@@ -190,7 +192,7 @@ impl ConnectionManager {
         child
     }
 
-    fn start_all(self: &mut ConnectionManager) {
+    fn start_all(self: &mut Self) {
         Self::clean_old_reg();
         self.childs = Vec::from_iter(
             self.conns
@@ -201,7 +203,7 @@ impl ConnectionManager {
     /**
      * kill all processes and restart
      */
-    fn restart_all(self: &mut ConnectionManager) {
+    fn restart_all(self: &mut Self) {
         match self.read_from_config() {
             Ok(_) => {
                 self.kill_all();
@@ -210,14 +212,14 @@ impl ConnectionManager {
             _ => (),
         }
     }
-    fn kill_all(self: &mut ConnectionManager) {
+    fn kill_all(self: &mut Self) {
         for child in &mut self.childs {
             println!("* kill {}", child.id());
             child.kill().expect("failed to kill");
         }
         self.childs.clear();
     }
-    fn read_from_config(self: &mut ConnectionManager) -> Result<(), ()> {
+    fn read_from_config(self: &mut Self) -> Result<(), ()> {
         let config: Result<SshfsConfig,_> = toml::from_str(
             fs::read_to_string("sshfs.toml")
                 .expect("failed to open config")
@@ -270,7 +272,7 @@ impl ConnectionManager {
             println!("* [clean reg] deleted: {}", &old_key);
         }
     }
-    fn tray_loop(self: &mut ConnectionManager) {
+    fn tray_loop(self: &mut Self) {
         let mut tray = TrayItem::new(
             "SSHFS Win Start",
             IconSource::Resource("name-of-icon-in-rc-file"),
