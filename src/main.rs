@@ -1,4 +1,9 @@
-#![windows_subsystem = "windows"]
+#![cfg(windows)]
+/* show console on debug build */
+#![cfg_attr(
+    all(target_os = "windows", not(debug_assertions),),
+    windows_subsystem = "windows"
+)]
 /**
  * what I have learnt:
  * 1.
@@ -30,16 +35,17 @@ enum Message {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")] // Automatically map snake_case to camelCase
 struct Connection {
     name: String,
     user: String,
     host: String,
     port: String,
     folder: String,
-    mountPoint: String,
+    mount_point: String,
     // uuid: String,
-    identityFile: String,
-    isMountAsANetworkDrive: bool,
+    identity_file: String,
+    is_mount_as_a_network_drive: bool,
 }
 impl Connection {
     // fn calculate_hash_from_everything(&self) -> String {
@@ -59,6 +65,7 @@ impl Connection {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] // Automatically map snake_case to camelCase
 struct SshfsConfig {
     connections: Vec<Connection>,
 }
@@ -69,8 +76,8 @@ struct ConnectionManager {
     childs: Vec<Child>,
 }
 impl ConnectionManager {
-    fn build(bin: &str) -> ConnectionManager {
-        ConnectionManager {
+    fn build(bin: &str) -> Self {
+        Self {
             bin: bin.to_string(),
             childs: vec![],
             conns: vec![],
@@ -79,7 +86,7 @@ impl ConnectionManager {
     /**
      * the entry point, start all connections, create tray icon, create message loop
      */
-    fn start(self: &mut ConnectionManager) {
+    fn start(self: &mut Self) {
         match self.read_from_config() {
             Ok(_) => {
                 self.start_all();
@@ -98,13 +105,14 @@ impl ConnectionManager {
         use std::os::windows::process::CommandExt;
         // const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-        if conn.isMountAsANetworkDrive {
+        if conn.is_mount_as_a_network_drive {
             let mount_points = RegKey::predef(HKEY_CURRENT_USER)
                 .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2")
                 .expect("failed to open reg key");
             mount_points
                 .create_subkey(format!("##sshfs-start#{}", &id))
                 .expect("failed to open reg")
+                .0
                 .set_value("_LabelFromReg", &conn.name)
                 .expect("failed to modify reg");
             // Command::new("reg")
@@ -121,7 +129,7 @@ impl ConnectionManager {
         let mut cmd = Command::new(&bin);
         cmd.args([
             format!("{}@{}:{}", conn.user, conn.host, conn.folder),
-            conn.mountPoint.to_string(),
+            conn.mount_point.to_string(),
             format!("-p{}", conn.port),
             format!("-ovolname={}", conn.name),
         ]);
@@ -157,17 +165,22 @@ impl ConnectionManager {
             // "-oCiphers=chacha20-poly1305@openssh.com", // no effect
             // "-oCompression=no", // no effect
         ]);
-        if conn.isMountAsANetworkDrive {
+        if conn.is_mount_as_a_network_drive {
             cmd.arg(format!("-oVolumePrefix=/sshfs-start/{}", &id));
         }
         cmd.args(["-oreconnect", "-oPreferredAuthentications=publickey"])
-            .arg(format!("-oIdentityFile=\"\"{}\"\"", conn.identityFile));
+            .arg(format!("-oIdentityFile=\"\"{}\"\"", conn.identity_file));
         // cmd.arg("-ossh_command=bin/ssh.exe");
         cmd.env("PATH", bin.trim_end_matches(|x| x != '/'));
 
 
-        let stdio_out = Stdio::from(File::create(format!("log_out.txt")).unwrap());
-        let mut err_file = File::create(format!("log_err_{}.txt", id)).unwrap();
+        let stdio_out = Stdio::from(File::create(format!("log_out.log")).unwrap());
+        let mut err_file = File::create(format!(
+            "log_err_{}_{}.log",
+            sanitize_filename::sanitize(&conn.name),
+            &id
+        ))
+        .unwrap();
         err_file
             .write_all(
                 format!(
@@ -178,8 +191,7 @@ impl ConnectionManager {
             )
             .expect("");
         let stdio_err = Stdio::from(err_file);
-        let stdio_in = Stdio::from(File::create(format!("log_in.txt")).unwrap());
-
+        // let stdio_in = Stdio::from(File::create(format!("log_in.txt")).unwrap());
         let child = cmd
             .creation_flags(CREATE_NO_WINDOW)
             // .creation_flags(DETACHED_PROCESS)
@@ -200,7 +212,7 @@ impl ConnectionManager {
         child
     }
 
-    fn start_all(self: &mut ConnectionManager) {
+    fn start_all(self: &mut Self) {
         Self::clean_old_reg();
         self.childs = Vec::from_iter(
             self.conns
@@ -211,7 +223,7 @@ impl ConnectionManager {
     /**
      * kill all processes and restart
      */
-    fn restart_all(self: &mut ConnectionManager) {
+    fn restart_all(self: &mut Self) {
         match self.read_from_config() {
             Ok(_) => {
                 self.kill_all();
@@ -239,7 +251,7 @@ impl ConnectionManager {
      * 
      * TODO: use pty to get perfect ^C
      */
-    fn kill_all(self: &mut ConnectionManager) {
+    fn kill_all(self: &mut Self) {
         for child in &mut self.childs {
             println!("* kill {}", child.id());
             child.kill().expect("failed to kill");
@@ -276,7 +288,7 @@ impl ConnectionManager {
         }
         self.childs.clear();
     }
-    fn read_from_config(self: &mut ConnectionManager) -> Result<(), ()> {
+    fn read_from_config(self: &mut Self) -> Result<(), ()> {
         let config: Result<SshfsConfig,_> = toml::from_str(
             fs::read_to_string("sshfs.toml")
                 .expect("failed to open config")
@@ -297,14 +309,7 @@ impl ConnectionManager {
             }
             Err(err) => {
                 eprintln!("failed to parse config, err: {}", err.to_string());
-                Toast::new(Toast::POWERSHELL_APP_ID)
-                    .title("Failed to parse config!")
-                    // .text1("(╯°□°）╯︵ ┻━┻")
-                    .text2(err.to_string().as_str())
-                    .sound(Some(Sound::Default))
-                    .duration(Duration::Long)
-                    .show()
-                    .expect("unable to toast");
+                toast_error("Failed to parse config!", err.to_string().as_str());
                 Result::Err(())
             }
         }
@@ -329,7 +334,7 @@ impl ConnectionManager {
             println!("* [clean reg] deleted: {}", &old_key);
         }
     }
-    fn tray_loop(self: &mut ConnectionManager) {
+    fn tray_loop(self: &mut Self) {
         let mut tray = TrayItem::new(
             "SSHFS Win Start",
             IconSource::Resource("name-of-icon-in-rc-file"),
@@ -387,6 +392,17 @@ impl ConnectionManager {
             }
         }
     }
+}
+
+fn toast_error(title: &str, text: &str) {
+    Toast::new(Toast::POWERSHELL_APP_ID)
+        .title(&title)
+        // .text1("(╯°□°）╯︵ ┻━┻")
+        .text2(&text)
+        .sound(Some(Sound::Default))
+        .duration(Duration::Long)
+        .show()
+        .expect("unable to toast");
 }
 
 

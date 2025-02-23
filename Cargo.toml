@@ -33,6 +33,7 @@ winapi = { version = "*", features = [
     "winbase",
     "winuser",
 ] }
+sanitize-filename = "*"
 
 [build-dependencies]
 windres = "*"
