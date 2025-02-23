@@ -17,6 +17,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use tray_item::{IconSource, TrayItem};
+use winapi::um::winbase::{
+    CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS,
+};
 use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 use winrt_notification::{Duration, IconCrop, Sound, Toast};
 enum Message {
@@ -93,14 +96,14 @@ impl ConnectionManager {
         // let id = nanoid!(6);
         let id = conn.calculate_hash().chars().take(6).collect::<String>();
         use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        // const CREATE_NO_WINDOW: u32 = 0x08000000;
 
         if conn.isMountAsANetworkDrive {
             let mount_points = RegKey::predef(HKEY_CURRENT_USER)
                 .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2")
                 .expect("failed to open reg key");
             mount_points
-                .create_subkey(format!("##sshfs#{}", &id))
+                .create_subkey(format!("##sshfs-start#{}", &id))
                 .expect("failed to open reg")
                 .set_value("_LabelFromReg", &conn.name)
                 .expect("failed to modify reg");
@@ -155,7 +158,7 @@ impl ConnectionManager {
             // "-oCompression=no", // no effect
         ]);
         if conn.isMountAsANetworkDrive {
-            cmd.arg(format!("-oVolumePrefix=/sshfs/{}", &id));
+            cmd.arg(format!("-oVolumePrefix=/sshfs-start/{}", &id));
         }
         cmd.args(["-oreconnect", "-oPreferredAuthentications=publickey"])
             .arg(format!("-oIdentityFile=\"\"{}\"\"", conn.identityFile));
@@ -176,9 +179,17 @@ impl ConnectionManager {
             .expect("");
         let stdio_err = Stdio::from(err_file);
         let stdio_in = Stdio::from(File::create(format!("log_in.txt")).unwrap());
+
         let child = cmd
             .creation_flags(CREATE_NO_WINDOW)
-            .stdin(stdio_in) // this required if creation_flags(CREATE_NO_WINDOW). while stdout and stderr are optional
+            // .creation_flags(DETACHED_PROCESS)
+            // .creation_flags(CREATE_NEW_PROCESS_GROUP) // this makes CTRL_BREAK_EVENT works! but only in console subsystem
+            // .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+            // .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
+            // .creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW)
+            // .creation_flags(CREATE_NEW_CONSOLE)
+            // .stdin(stdio_in) // this required if creation_flags(CREATE_NO_WINDOW).as well as stdout and stderr
+            .stdin(Stdio::null()) // this required if creation_flags(CREATE_NO_WINDOW). as well as stdout and stderr
             .stdout(stdio_out)
             .stderr(stdio_err)
             .spawn()
@@ -209,10 +220,59 @@ impl ConnectionManager {
             _ => (),
         }
     }
+    // fn kill_gracefully(child: &Child) {
+    //     unsafe {
+    //         libc::signal( libc::SIGTERM,child.id() as usize,);
+    //     }
+    // }
+
+    /**
+     * currently, only these can send ctrl c and stop child process gracefully:
+     * 1. console subsystem + NO CREATE_NO_WINDOW + GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, 0)
+     * 2. console subsystem + NO CREATE_NO_WINDOW + CREATE_NEW_PROCESS_GROUP + GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid)
+     * 3. manually start the sshfs.exe in shell and press ctrl+c
+     * 4. manually start the sshfs.exe in windows terminal and close the window
+     *
+     * these can force kill child process:
+     * 1. child.kill()
+     * (yeah, mingw kill seems not work on windows)
+     * 
+     * TODO: use pty to get perfect ^C
+     */
     fn kill_all(self: &mut ConnectionManager) {
         for child in &mut self.childs {
             println!("* kill {}", child.id());
             child.kill().expect("failed to kill");
+
+            // signal::kill(Pid::from_raw(child.id()), Signal::SIGTERM).unwrap();
+            // let kill = Command::new("kill")
+            //     // TODO: replace `TERM` to signal you want.
+            //     .args(["-s", "TERM", &child.id().to_string()])
+            //     .output()
+            //     .expect("1");
+            // println!("{:#?}", kill);
+            // kill.wait().expect("2");
+
+            // let pid = child.id();
+            // unsafe {
+            //     let result = winapi::um::wincon::GenerateConsoleCtrlEvent(
+            //         winapi::um::wincon::CTRL_BREAK_EVENT,
+            //         pid,
+            //     );
+            //     println!("* ctrlc to {}, result: {}", pid, result);
+            // }
+
+            // child.wait().expect("failed to wait exit");
+        }
+        // unsafe {
+        //     let result = winapi::um::wincon::GenerateConsoleCtrlEvent(
+        //         winapi::um::wincon::CTRL_BREAK_EVENT,
+        //         0,
+        //     );
+        //     println!("* ctrlc to {}, result: {}", 0, result);
+        // }
+        for child in &mut self.childs {
+            child.wait().expect("failed to wait exit");
         }
         self.childs.clear();
     }
@@ -257,7 +317,7 @@ impl ConnectionManager {
         let old_keys: Vec<String> = mount_points
             .enum_keys()
             .map(|x| x.unwrap())
-            .filter(|x| x.starts_with("##sshfs#"))
+            .filter(|x| x.starts_with("##sshfs-start#"))
             .collect();
         /*
         what? move filter into forin cause omit some keys?
@@ -334,6 +394,8 @@ fn main() {
     let bin = "C:/Program Files/SSHFS-Win/bin/sshfs.exe";
     // TO\DO: read from config file
     // let mut childs = Vec::from_iter(conns.iter().map(|conn| start_app(bin, &conn)));
+    // FIXME: if sshfs.exe doesn't exist, it crashes without any prompt
+    // FIXME: if winfps doesn't installed, it failed to connect with error kept in log, not good
     let mut man = ConnectionManager::build(bin);
     man.start();
 }
