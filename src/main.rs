@@ -31,8 +31,11 @@ enum Message {
     Quit,
     // ChangeIcon,
     Reconnect,
+    EditConfig,
     // Hello,
 }
+
+const CONFIG_FILE_PATH: &str = "sshfs.toml";
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")] // Automatically map snake_case to camelCase
@@ -67,12 +70,61 @@ impl Connection {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")] // Automatically map snake_case to camelCase
 struct SshfsConfig {
+    // #[serde(default)]
+    bin_path: Option<String>,
     connections: Vec<Connection>,
+}
+// impl Default for SshfsConfig {
+//     fn default() -> Self {
+//         SshfsConfig{
+//             bin_path: String::from("C:/Program Files/SSHFS-Win/bin/sshfs.exe"),
+//             connections: vec![],
+//         }
+//     }
+// }
+
+/**
+ * Parse sshfs.toml to struct
+ * TODO: better error handling
+ */
+fn read_config(config_path: Option<&str>) -> Result<SshfsConfig, ()> {
+    let config_string = fs::read_to_string(config_path.unwrap_or(CONFIG_FILE_PATH));
+    match config_string {
+        Ok(config_string) => {
+            let config: Result<SshfsConfig, _> = toml::from_str(config_string.as_str());
+            match config {
+                Ok(config) => {
+                    println!("* config: {:#?}", config);
+                    Result::Ok(config)
+                }
+                Err(err) => {
+                    eprintln!("failed to parse config, err: {}", err.to_string());
+                    toast_error("Failed to parse config!", err.to_string().as_str());
+                    Result::Err(())
+                }
+            }
+        }
+        Err(_) => {
+            toast_error(
+                "Failed to open config file!",
+                ("Please check whether ".to_owned() + CONFIG_FILE_PATH + " exists").as_str(),
+            );
+            Result::Err(())
+        }
+    }
+
+    /* .unwrap_or_else(|err| {
+        eprintln!("failed to parse config, err: {}", err);
+        let default_config = SshfsConfig {
+            connections: vec![],
+        };
+        default_config
+    }) */
 }
 
 struct ConnectionManager {
     bin: String,
-    conns: Vec<Connection>,
+    // conns: Vec<Connection>,
     childs: Vec<Child>,
 }
 impl ConnectionManager {
@@ -80,20 +132,23 @@ impl ConnectionManager {
         Self {
             bin: bin.to_string(),
             childs: vec![],
-            conns: vec![],
+            // conns: vec![],
         }
     }
     /**
      * the entry point, start all connections, create tray icon, create message loop
      */
     fn start(self: &mut Self) {
-        match self.read_from_config() {
-            Ok(_) => {
-                self.start_all();
-            }
-            _ => (),
-        }
+        self.start_all();
         self.tray_loop();
+    }
+    fn get_connections_from_config(self: &mut Self) -> Vec<Connection> {
+        match read_config(None) {
+            Ok(config) => config.connections,
+            _ => {
+                vec![]
+            }
+        }
     }
     /**
      * create the sshfs.exe (`bin`) process with config in `conn`
@@ -215,7 +270,7 @@ impl ConnectionManager {
     fn start_all(self: &mut Self) {
         Self::clean_old_reg();
         self.childs = Vec::from_iter(
-            self.conns
+            self.get_connections_from_config()
                 .iter()
                 .map(|conn| Self::create_sshfs(&self.bin, &conn)),
         );
@@ -224,13 +279,8 @@ impl ConnectionManager {
      * kill all processes and restart
      */
     fn restart_all(self: &mut Self) {
-        match self.read_from_config() {
-            Ok(_) => {
-                self.kill_all();
-                self.start_all();
-            }
-            _ => (),
-        }
+        self.kill_all();
+        self.start_all();
     }
     // fn kill_gracefully(child: &Child) {
     //     unsafe {
@@ -248,7 +298,7 @@ impl ConnectionManager {
      * these can force kill child process:
      * 1. child.kill()
      * (yeah, mingw kill seems not work on windows)
-     * 
+     *
      * TODO: use pty to get perfect ^C
      */
     fn kill_all(self: &mut Self) {
@@ -288,32 +338,7 @@ impl ConnectionManager {
         }
         self.childs.clear();
     }
-    fn read_from_config(self: &mut Self) -> Result<(), ()> {
-        let config: Result<SshfsConfig,_> = toml::from_str(
-            fs::read_to_string("sshfs.toml")
-                .expect("failed to open config")
-                .as_str(),
-        )
-        /* .unwrap_or_else(|err| {
-            eprintln!("failed to parse config, err: {}", err);
-            let default_config = SshfsConfig {
-                connections: vec![],
-            };
-            default_config
-        }) */;
-        match config {
-            Ok(config) => {
-                println!("* config: {:#?}", config);
-                self.conns = config.connections;
-                Result::Ok(())
-            }
-            Err(err) => {
-                eprintln!("failed to parse config, err: {}", err.to_string());
-                toast_error("Failed to parse config!", err.to_string().as_str());
-                Result::Err(())
-            }
-        }
-    }
+
     fn clean_old_reg() {
         let mount_points = RegKey::predef(HKEY_CURRENT_USER)
             .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MountPoints2")
@@ -351,6 +376,12 @@ impl ConnectionManager {
             })
             .unwrap();
 
+        let editconfig_tx = tx.clone();
+        tray.add_menu_item("Edit Config File", move || {
+            editconfig_tx.send(Message::EditConfig).unwrap();
+        })
+        .unwrap();
+
         tray.inner_mut().add_separator().unwrap();
 
         let quit_tx = tx.clone();
@@ -358,6 +389,7 @@ impl ConnectionManager {
             quit_tx.send(Message::Quit).unwrap();
         })
         .unwrap();
+
 
         /* handle ctrlc, only works in console subsystem, not windows subsystem */
         let ctrlc_tx = tx.clone();
@@ -388,6 +420,11 @@ impl ConnectionManager {
                         .set_menu_item_label("Reconnect", reconnect_id)
                         .unwrap();
                 }
+                Ok(Message::EditConfig) => {
+                    open::that(CONFIG_FILE_PATH).unwrap_or_else(|_| {
+                        toast_error("Failed to open config file", "");
+                    });
+                }
                 _ => {}
             }
         }
@@ -407,11 +444,24 @@ fn toast_error(title: &str, text: &str) {
 
 
 fn main() {
-    let bin = "C:/Program Files/SSHFS-Win/bin/sshfs.exe";
-    // TO\DO: read from config file
-    // let mut childs = Vec::from_iter(conns.iter().map(|conn| start_app(bin, &conn)));
-    // FIXME: if sshfs.exe doesn't exist, it crashes without any prompt
-    // FIXME: if winfps doesn't installed, it failed to connect with error kept in log, not good
-    let mut man = ConnectionManager::build(bin);
-    man.start();
+    /* TODO: more elegant error handling */
+    let bin = match read_config(None) {
+        Ok(config) => config
+            .bin_path
+            .unwrap_or(String::from("C:/Program Files/SSHFS-Win/bin/sshfs.exe")),
+        Err(_) => String::from("C:/Program Files/SSHFS-Win/bin/sshfs.exe"),
+    };
+    if std::path::Path::new(&bin).exists() {
+        // TO\DO: read from config file
+        // let mut childs = Vec::from_iter(conns.iter().map(|conn| start_app(bin, &conn)));
+        // FIXME: if sshfs.exe doesn't exist, it crashes without any prompt
+        // FIXME: if winfps doesn't installed, it failed to connect with error kept in log, not good
+        let mut man = ConnectionManager::build(&bin);
+        man.start();
+    } else {
+        toast_error(
+            "Please install SSHFS first!",
+            ("or specify path to sshfs.exe in `".to_owned() + CONFIG_FILE_PATH + "`").as_str(),
+        );
+    }
 }

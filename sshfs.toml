@@ -1,12 +1,14 @@
+binPath = "C:/Program Files/SSHFS-Win/bin/sshfs.exe" # please install sshfs and winfsp first
+
 [[connections]]
 name                   = "root@fjail/fuserdata"           # human readable, show in explorer
-user                   = "root"
-host                   = "192.168.31.11"
-port                   = "22"                             # string, not number
-folder                 = "/media/fuserdata"               # which folder to mount
+user                   = "root"                           # SSH username
+host                   = "192.168.31.11"                  # SSH server domain name or IP address
+port                   = "22"                             # SSH server port (default to 22), string, not number
+folder                 = "/media/fuserdata"               # which folder of server to mount
 mountPoint             = "X:"                             # make sure this drive letter is availble
 identityFile           = "C:/Users/Fifv/.ssh/id_ed255519" # only support public key, can't use password
-isMountAsANetworkDrive = true
+isMountAsANetworkDrive = true                             # some apps have optimizations for netdrive
 
 [[connections]]
 name                   = "root@fjail/BitTorrentDownload/"

@@ -1,5 +1,5 @@
 [package]
-name = "start-sshfs"
+name    = "start-sshfs"
 version = "0.1.1"
 edition = "2021"
 
@@ -11,30 +11,20 @@ default-run = "start-sshfs"
 
 [dependencies]
 tray-item = "*"
-winreg = "*"
-ctrlc = "3.4"
+winreg    = "*"
+ctrlc     = "3.4"
 # nanoid = "0.4.0"
-md5 = "*"
+md5   = "*"
 serde = { version = "*", features = ["derive"] }
 # serde_json = "*"
 toml = "*"
 # libc = "*"
-nix = { version = "*", features = ["signal"] }
+nix                = { version = "*", features = ["signal"] }
 winrt-notification = "*"
+winapi             = { version = "*", features = ["wincon", "minwindef", "processthreadsapi", "winnt", "errhandlingapi", "tlhelp32", "synchapi", "winbase", "winuser", "handleapi"] }
 # windows = "*"
-winapi = { version = "*", features = [
-    "wincon",
-    "minwindef",
-    "processthreadsapi",
-    "winnt",
-    "errhandlingapi",
-    "tlhelp32",
-    "synchapi",
-    "winbase",
-    "winuser",
-    "handleapi",
-] }
 sanitize-filename = "*"
+open              = "*"
 
 [build-dependencies]
 windres = "*"
